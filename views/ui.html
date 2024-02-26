@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resumable File Upload</title>
+</head>
+<body>
+    <input type="file" id="fileInput">
+    <button id="startButton">Start Upload</button>
+    <button id="stopButton" disabled>Stop Upload</button>
+    <button id="resumeButton" disabled>Resume Upload</button>
+    <div id="progress"></div>
+
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const resumeButton = document.getElementById('resumeButton');
+        const progress = document.getElementById('progress');
+
+        let file;
+        let isPaused = false;
+        let uploadUrl;
+        let xhr;
+        let offset  = 0;
+        let length  = 0;
+        fileInput.addEventListener('change', function(event) {
+            file = event.target.files[0];
+            length = file.size;
+        });
+
+        startButton.addEventListener('click', function() {
+            if (!file) {
+                alert('Please select a file');
+                return;
+            }
+
+            startButton.disabled = true;
+            stopButton.disabled = false;
+            progress.innerText = "starting..";
+            uploadFile();
+        });
+
+        stopButton.addEventListener('click', function() {
+            if (xhr) {
+                xhr.abort();
+            }
+            isPaused = true;
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            resumeButton.disabled = false;
+        });
+
+        resumeButton.addEventListener('click', function() {
+            progress.innerText=`uploading...`;
+            if (isPaused) {
+                isPaused = false;
+                resumeUpload(uploadUrl);
+                resumeButton.disabled = true;
+                stopButton.disabled = false;
+                console.log("if",uploadUrl);
+            }
+            else{
+                console.log("else",uploadUrl);
+                uploadFile();
+            }
+        });
+
+      async  function uploadFile() {
+            const formData = new FormData();
+            formData.append('file', file);
+            console.log(file);
+            let {lastModified,name,size,type }= file;
+            let filob = {};
+            filob.name = name;
+            filob.lastModified = lastModified;
+            filob.size = size;
+            filob.mimetype = type;
+          
+             let res  = await fetch("/",{
+                method : "POST",
+                headers : {
+                    "Content-Type":"application/json"
+                },
+                body : JSON.stringify(filob)
+             })
+              res = await res.json();
+              uploadUrl = `/${res.idx}`;
+              resumeUpload(uploadUrl, formData);
+            
+        }
+
+      async function resumeUpload(uploadUrl, formData) {
+        let head = await fetch(uploadUrl,{
+            method : "HEAD"
+        });
+
+        console.log(head.headers.get("Current"));
+        offset = Number.parseInt(head.headers.get("Current"));
+           console.time("slicing");
+           const blob = file.slice(offset);
+           console.log("current blob",blob.length);
+           console.timeEnd("slicing");
+            formData = new FormData();
+            formData.set("file",file.slice(offset));
+            xhr = new XMLHttpRequest();
+            xhr.open('PATCH', uploadUrl);
+            // xhr.setRequestHeader("Content-Type","application/octet-stream")
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    console.log('Upload complete:', xhr.responseText);
+                } else {
+                    console.error('Upload failed:', xhr.statusText);
+                }
+            };
+            xhr.onerror = function() {
+                console.error('Upload failed');
+            };
+            xhr.upload.onprogress = function(event) {
+                console.log(offset,event.loaded,event.total+offset);
+                if (event.lengthComputable) {
+                    const percentComplete = ((event.loaded+offset) / (event.total+offset)) * 100;
+                    progress.textContent = `Progress: ${percentComplete.toFixed(2)}%`;
+                }
+            };
+            xhr.send(formData); }
+    </script>
+</body>
+</html>
